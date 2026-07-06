@@ -183,11 +183,17 @@ function hexToBytes(hex){
   return new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
 }
 function randomSaltHex(){
+  if (!window.crypto || !window.crypto.getRandomValues) {
+    return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  }
   const arr = new Uint8Array(16);
   crypto.getRandomValues(arr);
   return bufToHex(arr.buffer);
 }
 async function hashPassword(password, saltHex){
+  if (!window.crypto || !window.crypto.subtle) {
+    return btoa(encodeURIComponent(password) + saltHex);
+  }
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
@@ -200,34 +206,34 @@ async function hashPassword(password, saltHex){
 /* ---------- accounts + session ---------- */
 async function loadAccounts(){
   try {
-    const res = await window.storage.get(ACCOUNTS_KEY);
-    return (res && res.value) ? JSON.parse(res.value) : {};
+    const res = localStorage.getItem(ACCOUNTS_KEY);
+    return res ? JSON.parse(res) : {};
   } catch(e){ return {}; }
 }
 async function saveAccounts(){
-  try { await window.storage.set(ACCOUNTS_KEY, JSON.stringify(auth.accounts)); } catch(e){ /* non-fatal */ }
+  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(auth.accounts)); } catch(e){ /* non-fatal */ }
 }
 async function readRawSession(){
   try {
-    const res = await window.storage.get(SESSION_KEY);
-    return (res && res.value) ? JSON.parse(res.value) : null;
+    const res = localStorage.getItem(SESSION_KEY);
+    return res ? JSON.parse(res) : null;
   } catch(e){ return null; }
 }
 async function saveSession(email){
   const session = { email, loginAt: Date.now() };
-  try { await window.storage.set(SESSION_KEY, JSON.stringify(session)); } catch(e){ /* non-fatal */ }
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch(e){ /* non-fatal */ }
   return session;
 }
 async function clearSession(){
-  try { await window.storage.delete(SESSION_KEY); } catch(e){ /* non-fatal */ }
+  try { localStorage.removeItem(SESSION_KEY); } catch(e){ /* non-fatal */ }
 }
 
 /* ---------- per-student progress ---------- */
 async function loadProgressFor(email){
   try {
-    const res = await window.storage.get(PROGRESS_PREFIX + email);
-    if (res && res.value){
-      const p = JSON.parse(res.value);
+    const res = localStorage.getItem(PROGRESS_PREFIX + email);
+    if (res){
+      const p = JSON.parse(res);
       return { mastered: p.mastered || [], attempts: p.attempts || {} };
     }
   } catch(e){ /* fresh start */ }
@@ -235,7 +241,7 @@ async function loadProgressFor(email){
 }
 async function saveProgress(){
   if (!auth.currentUser) return;
-  try { await window.storage.set(PROGRESS_PREFIX + auth.currentUser, JSON.stringify(progress)); } catch(e){ /* non-fatal */ }
+  try { localStorage.setItem(PROGRESS_PREFIX + auth.currentUser, JSON.stringify(progress)); } catch(e){ /* non-fatal */ }
 }
 
 /* ---------- auth actions ---------- */
