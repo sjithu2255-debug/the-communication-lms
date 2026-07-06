@@ -25,13 +25,34 @@
   }
   button{font-family:inherit;}
   .app-shell{
-    width:100%; max-width:520px; margin:0 auto; min-height:100vh; background:var(--ink);
+    width:100%; margin:0 auto; min-height:100vh; background:var(--ink);
     display:flex; flex-direction:column; position:relative; overflow-x:hidden;
   }
   .app-shell > *{ min-width:0; }
-  @media (min-width:560px){
-    body{padding:28px 0;}
-    .app-shell{min-height:calc(100vh - 56px); border-radius:26px; box-shadow:0 30px 90px rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.06);}
+  
+  @media (min-width:768px){
+    .topbar, .account-bar, .filters, .topic-list, .thread-header, .thread-body, .quiz-footer, .results-wrap {
+      max-width: 860px;
+      margin-left: auto;
+      margin-right: auto;
+      width: 100%;
+    }
+    .topic-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      padding: 24px;
+      align-content: start;
+    }
+    .topic-row {
+      border: 1px solid var(--line) !important;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .section-label {
+      grid-column: 1 / -1;
+      padding: 16px 0 4px !important;
+    }
   }
   button:focus-visible, .topic-row:focus-visible{ outline:2px solid var(--paper); outline-offset:2px; }
 
@@ -141,6 +162,17 @@
 
   @media (prefers-reduced-motion: reduce){
     *{ animation-duration:0.001ms !important; transition-duration:0.001ms !important; }
+  }
+
+  @media (min-width:768px){
+    .auth-blob.b1{ width:500px;height:500px; top:-100px; left:-100px; filter:blur(100px); }
+    .auth-blob.b2{ width:450px;height:450px; bottom:-100px; right:-100px; filter:blur(100px); }
+    .auth-blob.b3{ width:350px;height:350px; bottom:15%; left:-50px; filter:blur(90px); }
+    .auth-blob.b4{ width:350px;height:350px; top:15%; right:-50px; filter:blur(90px); }
+    .auth-card{ max-width: 440px; padding: 40px 32px; }
+    .auth-emoji{ font-size:42px; margin-bottom:12px; }
+    .auth-title{ font-size:24px; margin-bottom:8px; }
+    .auth-sub{ font-size:14px; margin-bottom:28px; }
   }
 </style>
 </head>
