@@ -382,6 +382,7 @@ function render(){
   else if (state.view === 'pending') app.innerHTML = renderPending();
   else if (state.view === 'rejected') app.innerHTML = renderRejected();
   else if (state.view === 'admin') app.innerHTML = renderAdmin();
+  else if (state.view === 'admin_user_progress') app.innerHTML = renderAdminUserProgress();
   else if (state.view === 'topic') app.innerHTML = renderTopic(BY_ID[state.topicId]);
   else if (state.view === 'quiz') app.innerHTML = renderQuiz();
   else if (state.view === 'results') app.innerHTML = renderResults();
@@ -501,7 +502,7 @@ function renderAdmin() {
   
   let tbodyHTML = '';
   if (emails.length === 0) {
-    tbodyHTML = '<tr><td colspan="4"><div style="text-align:center; padding:40px; color:var(--paper-dim);">No users found.</div></td></tr>';
+    tbodyHTML = '<tr><td colspan="5"><div style="text-align:center; padding:40px; color:var(--paper-dim);">No users found.</div></td></tr>';
   } else {
     tbodyHTML = usersData.map(u => `
       <tr class="admin-tr">
@@ -520,6 +521,10 @@ function renderAdmin() {
         </td>
         <td class="admin-td" style="color:var(--paper-dim); font-size:13px;">
           ${u.status === 'pending' ? `<button class="auth-btn" style="padding:6px 12px; font-size:12px; background:var(--accent3); border:none; border-radius:8px; cursor:pointer; font-weight:600; color:#fff; margin-right:6px;" onclick="approveUser('${escapeHtml(u.email)}')">Approve</button><button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer; font-weight:600;" onclick="rejectUser('${escapeHtml(u.email)}')">Reject</button>` : (u.status === 'rejected' ? '<span style="color:#F5A38A; font-weight:600;">Rejected</span>' : ((u.mastered || u.tried) ? '<span style="color:var(--good); font-weight:600;">Active</span>' : 'Not started'))}
+        </td>
+        <td class="admin-td" style="text-align:right;">
+          <button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="viewUserProgress('${escapeHtml(u.email)}')">View Progress</button>
+          ${u.email !== 'jithu.sreekumar@searce.com' ? `<button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer;" onclick="removeUser('${escapeHtml(u.email)}')">Remove</button>` : ''}
         </td>
       </tr>
     `).join('');
@@ -554,6 +559,7 @@ function renderAdmin() {
                 <th class="admin-th">Progress</th>
                 <th class="admin-th">Topics State</th>
                 <th class="admin-th">Status</th>
+                <th class="admin-th" style="text-align:right;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -563,6 +569,70 @@ function renderAdmin() {
         </div>
       </div>
     </div>`;
+}
+
+window.removeUser = async function(email) {
+  if (email === 'jithu.sreekumar@searce.com') return;
+  if (confirm('Are you sure you want to completely remove this user?')) {
+    delete auth.accounts[email];
+    await saveAccounts();
+    localStorage.removeItem('comms_progress_' + email);
+    render();
+  }
+};
+
+window.viewUserProgress = function(email) {
+  state.selectedUser = email;
+  state.view = 'admin_user_progress';
+  render();
+};
+
+function renderAdminUserProgress() {
+  const email = state.selectedUser;
+  const user = auth.accounts[email] || {};
+  const progressStr = localStorage.getItem('comms_progress_' + email);
+  let progress = {};
+  if (progressStr) {
+    try { progress = JSON.parse(progressStr); } catch(e){}
+  }
+  
+  let rows = DATA.topics.map(t => {
+    const p = progress[t.id] || 0;
+    const statusText = p === 10 ? '<span style="color:var(--good); font-weight:600;">Mastered (10/10)</span>' : (p > 0 ? `<span style="color:var(--connectors); font-weight:600;">Tried (${p}/10)</span>` : '<span style="color:var(--paper-dim);">Not started</span>');
+    return `
+      <tr class="admin-tr">
+        <td class="admin-td" style="font-weight:600; color:var(--paper);">${escapeHtml(t.title)}</td>
+        <td class="admin-td">${statusText}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="app-shell">
+      <div class="thread-header">
+        <button class="back-btn" onclick="state.view='admin'; render();">←</button>
+        <div>
+          <div class="thread-title">Progress for ${escapeHtml(email)}</div>
+          <div class="thread-persona">${escapeHtml(user.name || '')}</div>
+        </div>
+      </div>
+      <div style="padding:40px 24px; max-width:860px; margin:0 auto; width:100%;">
+        <div style="background:rgba(255,255,255,0.08); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); border:1px solid rgba(255,255,255,0.16); border-radius:16px; overflow:hidden;">
+          <table style="width:100%; border-collapse:collapse; text-align:left;">
+            <thead>
+              <tr>
+                <th class="admin-th">Topic</th>
+                <th class="admin-th">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 window.rejectUser = async function(email) {

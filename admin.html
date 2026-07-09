@@ -125,6 +125,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <th>Progress</th>
           <th>Topics State</th>
           <th>Status</th>
+            <th style="text-align:right;">Actions</th>
         </tr>
       </thead>
       <tbody id="usersBody">
@@ -229,6 +230,10 @@ function loadAdminData() {
       <td style="color:var(--text-dim); font-size:13px;">
         ${u.status === 'pending' ? `<button style="padding:6px 12px; font-size:12px; background:var(--accent3); border:none; border-radius:8px; cursor:pointer; font-weight:600; color:#fff; margin-right:6px;" onclick="approveUser('${u.email}')">Approve</button><button style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer; font-weight:600;" onclick="rejectUser('${u.email}')">Reject</button>` : (u.status === 'rejected' ? '<span style="color:#F5A38A; font-weight:600;">Rejected</span>' : ((u.mastered || u.tried) ? '<span style="color:var(--accent3); font-weight:600;">Active</span>' : 'Not started'))}
       </td>
+      <td style="text-align:right;">
+        <button style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="viewUserProgress('${u.email}')">View Progress</button>
+        ${u.email !== 'jithu.sreekumar@searce.com' ? `<button style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer;" onclick="removeUser('${u.email}')">Remove</button>` : ''}
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -243,6 +248,34 @@ window.approveUser = function(email) {
     loadAdminData();
   }
 };
+window.removeUser = function(email) {
+  if (email === 'jithu.sreekumar@searce.com') return;
+  if (confirm('Are you sure you want to completely remove this user?')) {
+    let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
+    delete accs[email];
+    localStorage.setItem('comms_accounts', JSON.stringify(accs));
+    localStorage.removeItem('comms_progress_' + email);
+    loadAdminData();
+  }
+};
+
+window.viewUserProgress = function(email) {
+  const progressStr = localStorage.getItem('comms_progress_' + email);
+  let progress = {};
+  if (progressStr) {
+    try { progress = JSON.parse(progressStr); } catch(e){}
+  }
+  
+  let rows = Object.keys(progress).map(topicId => {
+    const p = progress[topicId];
+    return `<li>${topicId}: ${p === 10 ? 'Mastered (10/10)' : 'Tried (' + p + '/10)'}</li>`;
+  }).join('');
+  
+  if (!rows) rows = "<li>No progress started.</li>";
+  
+  alert("Progress for " + email + ":\n\n" + rows.replace(/<[^>]*>?/gm, ''));
+};
+
 window.rejectUser = function(email) {
   let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
   if(accs[email]) {

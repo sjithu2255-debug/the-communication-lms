@@ -341,6 +341,7 @@ function render(){
   if (state.view === 'auth'){ app.innerHTML = renderAuth(); return; }
   if (state.view === 'home') app.innerHTML = renderHome();
   else if (state.view === 'admin') app.innerHTML = renderAdmin();
+  else if (state.view === 'admin_user_progress') app.innerHTML = renderAdminUserProgress();
   else if (state.view === 'topic') app.innerHTML = renderTopic(BY_ID[state.topicId]);
   else if (state.view === 'quiz') app.innerHTML = renderQuiz();
   else if (state.view === 'results') app.innerHTML = renderResults();
@@ -459,7 +460,7 @@ function renderAdmin() {
   
   let tbodyHTML = '';
   if (emails.length === 0) {
-    tbodyHTML = '<tr><td colspan="4"><div style="text-align:center; padding:40px; color:var(--paper-dim);">No users found.</div></td></tr>';
+    tbodyHTML = '<tr><td colspan="5"><div style="text-align:center; padding:40px; color:var(--paper-dim);">No users found.</div></td></tr>';
   } else {
     tbodyHTML = usersData.map(u => `
       <tr class="admin-tr">
@@ -512,6 +513,7 @@ function renderAdmin() {
                 <th class="admin-th">Progress</th>
                 <th class="admin-th">Topics State</th>
                 <th class="admin-th">Status</th>
+                <th class="admin-th" style="text-align:right;">Actions</th>
               </tr>
             </thead>
             <tbody>
