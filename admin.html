@@ -97,7 +97,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
 <header class="header">
   <h1>Admin Dashboard</h1>
   <div>
-    <button onclick="window.location.href='index.html'" style="background:var(--surface); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:8px; cursor:pointer; font-family:'Inter', sans-serif;">Back to App</button>
+    <button onclick="window.location.href='index.html'" style="background:rgba(255,255,255,0.08); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); border:1px solid rgba(255,255,255,0.16); border-radius:16px; border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:8px; cursor:pointer; font-family:'Inter', sans-serif;">Back to App</button>
   </div>
 </header>
 
@@ -227,13 +227,30 @@ function loadAdminData() {
         <span class="badge" style="color:var(--text-dim)">${u.tried} Tried</span>
       </td>
       <td style="color:var(--text-dim); font-size:13px;">
-        ${(u.mastered || u.tried) ? '<span style="color:var(--accent3)">Active</span>' : 'Not started'}
+        ${u.status === 'pending' ? `<button style="padding:6px 12px; font-size:12px; background:var(--accent3); border:none; border-radius:8px; cursor:pointer; font-weight:600; color:#fff; margin-right:6px;" onclick="approveUser('${u.email}')">Approve</button><button style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer; font-weight:600;" onclick="rejectUser('${u.email}')">Reject</button>` : (u.status === 'rejected' ? '<span style="color:#F5A38A; font-weight:600;">Rejected</span>' : ((u.mastered || u.tried) ? '<span style="color:var(--accent3); font-weight:600;">Active</span>' : 'Not started'))}
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
 
+
+window.approveUser = function(email) {
+  let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
+  if(accs[email]) {
+    accs[email].status = 'approved';
+    localStorage.setItem('comms_accounts', JSON.stringify(accs));
+    loadAdminData();
+  }
+};
+window.rejectUser = function(email) {
+  let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
+  if(accs[email]) {
+    accs[email].status = 'rejected';
+    localStorage.setItem('comms_accounts', JSON.stringify(accs));
+    loadAdminData();
+  }
+};
 loadAdminData();
 </script>
 </body>
