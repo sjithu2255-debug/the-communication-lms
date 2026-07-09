@@ -483,7 +483,7 @@ function renderAdmin() {
     `).join('');
   }
 
-  return \`
+  return `
     <div class="app-shell">
       <div class="topbar">
         <div class="brand">Admin Dashboard</div>
@@ -492,15 +492,15 @@ function renderAdmin() {
       <div style="padding:40px 24px; max-width:860px; margin:0 auto; width:100%;">
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:20px; margin-bottom:40px;">
           <div style="background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px; text-align:center;">
-            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">\${emails.length}</h3>
+            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">${emails.length}</h3>
             <p style="margin:0; color:var(--paper-dim); font-size:14px; text-transform:uppercase; letter-spacing:1px;">Total Users</p>
           </div>
           <div style="background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px; text-align:center;">
-            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">\${activeLearners}</h3>
+            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">${activeLearners}</h3>
             <p style="margin:0; color:var(--paper-dim); font-size:14px; text-transform:uppercase; letter-spacing:1px;">Active Learners</p>
           </div>
           <div style="background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px; text-align:center;">
-            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">\${avgPct}</h3>
+            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">${avgPct}</h3>
             <p style="margin:0; color:var(--paper-dim); font-size:14px; text-transform:uppercase; letter-spacing:1px;">Avg Progress</p>
           </div>
         </div>
@@ -515,12 +515,12 @@ function renderAdmin() {
               </tr>
             </thead>
             <tbody>
-              \${tbodyHTML}
+              ${tbodyHTML}
             </tbody>
           </table>
         </div>
       </div>
-    </div>\`;
+    </div>`;
 }
 
 function renderTopic(t){
