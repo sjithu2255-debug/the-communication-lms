@@ -142,6 +142,33 @@ tr:hover { background: rgba(255,255,255,0.02); }
 const ACCOUNTS_KEY = 'grammar_accounts_v1';
 const PROGRESS_PREFIX = 'grammar_progress_v1:';
 
+function bufToHex(buf){
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function hexToBytes(hex){
+  return new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+}
+function randomSaltHex(){
+  if (!window.crypto || !window.crypto.getRandomValues) {
+    return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  }
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return bufToHex(arr.buffer);
+}
+async function hashPassword(password, saltHex){
+  if (!window.crypto || !window.crypto.subtle) {
+    return btoa(encodeURIComponent(password) + saltHex);
+  }
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: hexToBytes(saltHex), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, 256
+  );
+  return bufToHex(bits);
+}
+
 function loadAdminData() {
   const accountsRaw = localStorage.getItem(ACCOUNTS_KEY);
   let accounts = {};
@@ -172,19 +199,17 @@ function loadAdminData() {
   emails.forEach(email => {
     const acc = accounts[email];
     const progRaw = localStorage.getItem(PROGRESS_PREFIX + email);
-    let progress = {};
+    let progress = { mastered: [], attempts: {} };
     if (progRaw) {
-      try { progress = JSON.parse(progRaw); } catch(e) {}
+      try { 
+        const p = JSON.parse(progRaw);
+        progress.mastered = p.mastered || [];
+        progress.attempts = p.attempts || {};
+      } catch(e) {}
     }
 
-    const topicIds = Object.keys(progress);
-    let masteredCount = 0;
-    let triedCount = 0;
-    
-    topicIds.forEach(t => {
-      if (progress[t].mastered) masteredCount++;
-      else triedCount++;
-    });
+    let masteredCount = progress.mastered.length;
+    let triedCount = Object.keys(progress.attempts).length;
 
     if (masteredCount > 0 || triedCount > 0) {
       activeLearners++;
@@ -231,7 +256,8 @@ function loadAdminData() {
         ${u.status === 'pending' ? `<button style="padding:6px 12px; font-size:12px; background:var(--accent3); border:none; border-radius:8px; cursor:pointer; font-weight:600; color:#fff; margin-right:6px;" onclick="approveUser('${u.email}')">Approve</button><button style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer; font-weight:600;" onclick="rejectUser('${u.email}')">Reject</button>` : (u.status === 'rejected' ? '<span style="color:#F5A38A; font-weight:600;">Rejected</span>' : ((u.mastered || u.tried) ? '<span style="color:var(--accent3); font-weight:600;">Active</span>' : 'Not started'))}
       </td>
       <td style="text-align:right;">
-        <button style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="viewUserProgress('${u.email}')">View Progress</button>
+        <button style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--text); margin-right:6px;" onclick="viewUserProgress('${u.email}')">View Progress</button>
+        <button style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--text); margin-right:6px;" onclick="resetPassword('${u.email}')">Reset Pwd</button>
         ${u.email !== 'jithu.sreekumar@searce.com' ? `<button style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer;" onclick="removeUser('${u.email}')">Remove</button>` : ''}
       </td>
     `;
@@ -241,35 +267,60 @@ function loadAdminData() {
 
 
 window.approveUser = function(email) {
-  let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
+  let accs = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)) || {};
   if(accs[email]) {
     accs[email].status = 'approved';
-    localStorage.setItem('comms_accounts', JSON.stringify(accs));
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accs));
     loadAdminData();
   }
 };
 window.removeUser = function(email) {
   if (email === 'jithu.sreekumar@searce.com') return;
   if (confirm('Are you sure you want to completely remove this user?')) {
-    let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
+    let accs = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)) || {};
     delete accs[email];
-    localStorage.setItem('comms_accounts', JSON.stringify(accs));
-    localStorage.removeItem('comms_progress_' + email);
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accs));
+    localStorage.removeItem(PROGRESS_PREFIX + email);
     loadAdminData();
   }
 };
 
+window.resetPassword = async function(email) {
+  const newPwd = prompt(`Enter new password for ${email} (min 4 chars):`);
+  if (!newPwd) return;
+  if (newPwd.length < 4) {
+    alert("Password must be at least 4 characters.");
+    return;
+  }
+  let accs = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)) || {};
+  if(accs[email]) {
+    const salt = randomSaltHex();
+    const hash = await hashPassword(newPwd, salt);
+    accs[email].salt = salt;
+    accs[email].hash = hash;
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accs));
+    alert(`Password for ${email} has been reset successfully.`);
+  }
+};
+
 window.viewUserProgress = function(email) {
-  const progressStr = localStorage.getItem('comms_progress_' + email);
-  let progress = {};
+  const progressStr = localStorage.getItem(PROGRESS_PREFIX + email);
+  let progress = { mastered: [], attempts: {} };
   if (progressStr) {
-    try { progress = JSON.parse(progressStr); } catch(e){}
+    try { 
+      const p = JSON.parse(progressStr);
+      progress.mastered = p.mastered || [];
+      progress.attempts = p.attempts || {};
+    } catch(e){}
   }
   
-  let rows = Object.keys(progress).map(topicId => {
-    const p = progress[topicId];
-    return `<li>${topicId}: ${p === 10 ? 'Mastered (10/10)' : 'Tried (' + p + '/10)'}</li>`;
-  }).join('');
+  let rows = '';
+  progress.mastered.forEach(topicId => {
+    rows += `<li>${topicId}: Mastered</li>`;
+  });
+  Object.keys(progress.attempts).forEach(topicId => {
+    rows += `<li>${topicId}: Tried (${progress.attempts[topicId]} attempts)</li>`;
+  });
   
   if (!rows) rows = "<li>No progress started.</li>";
   
@@ -277,10 +328,10 @@ window.viewUserProgress = function(email) {
 };
 
 window.rejectUser = function(email) {
-  let accs = JSON.parse(localStorage.getItem('comms_accounts')) || {};
+  let accs = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)) || {};
   if(accs[email]) {
     accs[email].status = 'rejected';
-    localStorage.setItem('comms_accounts', JSON.stringify(accs));
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accs));
     loadAdminData();
   }
 };
