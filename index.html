@@ -298,6 +298,11 @@ async function attemptAuth(rawEmail, password){
       state.view = 'admin';
       render();
       return;
+    } else {
+      state.authBusy = false;
+      state.authError = "That password doesn't match this email.";
+      render();
+      return;
     }
   }
 
@@ -524,6 +529,7 @@ function renderAdmin() {
         </td>
         <td class="admin-td" style="text-align:right;">
           <button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="viewUserProgress('${escapeHtml(u.email)}')">View Progress</button>
+          <button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="resetPassword('${escapeHtml(u.email)}')">Reset Pwd</button>
           ${u.email !== 'jithu.sreekumar@searce.com' ? `<button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer;" onclick="removeUser('${escapeHtml(u.email)}')">Remove</button>` : ''}
         </td>
       </tr>
@@ -576,8 +582,25 @@ window.removeUser = async function(email) {
   if (confirm('Are you sure you want to completely remove this user?')) {
     delete auth.accounts[email];
     await saveAccounts();
-    localStorage.removeItem('comms_progress_' + email);
+    localStorage.removeItem(PROGRESS_PREFIX + email);
     render();
+  }
+};
+
+window.resetPassword = async function(email) {
+  const newPwd = prompt(`Enter new password for ${email} (min 4 chars):`);
+  if (!newPwd) return;
+  if (newPwd.length < 4) {
+    alert("Password must be at least 4 characters.");
+    return;
+  }
+  if (auth.accounts[email]) {
+    const salt = randomSaltHex();
+    const hash = await hashPassword(newPwd, salt);
+    auth.accounts[email].salt = salt;
+    auth.accounts[email].hash = hash;
+    await saveAccounts();
+    alert(`Password for ${email} has been reset successfully.`);
   }
 };
 
