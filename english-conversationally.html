@@ -211,76 +211,28 @@ function shuffle(arr){
 }
 function sectionColor(n){ return {1:'var(--connectors)',2:'var(--modals)',3:'var(--tenses)',4:'var(--preps)'}[n]; }
 
-/* ---------- password hashing (PBKDF2-SHA256, client-side only \u2014 see chat notes on limits) ---------- */
-function bufToHex(buf){
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-function hexToBytes(hex){
-  return new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
-}
-function randomSaltHex(){
-  if (!window.crypto || !window.crypto.getRandomValues) {
-    return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-  }
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  return bufToHex(arr.buffer);
-}
-async function hashPassword(password, saltHex){
-  if (!window.crypto || !window.crypto.subtle) {
-    return btoa(encodeURIComponent(password) + saltHex);
-  }
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: hexToBytes(saltHex), iterations: 100000, hash: 'SHA-256' },
-    keyMaterial, 256
-  );
-  return bufToHex(bits);
-}
-
-/* ---------- accounts + session ---------- */
-async function loadAccounts(){
-  try {
-    const res = localStorage.getItem(ACCOUNTS_KEY);
-    return res ? JSON.parse(res) : {};
-  } catch(e){ return {}; }
-}
-async function saveAccounts(){
-  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(auth.accounts)); } catch(e){ /* non-fatal */ }
-}
-async function readRawSession(){
-  try {
-    const res = localStorage.getItem(SESSION_KEY);
-    return res ? JSON.parse(res) : null;
-  } catch(e){ return null; }
-}
-async function saveSession(email){
-  const session = { email, loginAt: Date.now() };
-  try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch(e){ /* non-fatal */ }
-  return session;
-}
-async function clearSession(){
-  try { localStorage.removeItem(SESSION_KEY); } catch(e){ /* non-fatal */ }
-}
-
-/* ---------- per-student progress ---------- */
+/* ---------- Firebase Auth & Firestore Sync ---------- */
 async function loadProgressFor(email){
   try {
-    const res = localStorage.getItem(PROGRESS_PREFIX + email);
-    if (res){
-      const p = JSON.parse(res);
+    const docSnap = await window.getDoc(window.doc(window.db, "users", email));
+    if (docSnap.exists()){
+      const p = docSnap.data();
       return { mastered: p.mastered || [], attempts: p.attempts || {} };
     }
-  } catch(e){ /* fresh start */ }
+  } catch(e){ console.error(e); }
   return { mastered: [], attempts: {} };
 }
+
 async function saveProgress(){
   if (!auth.currentUser) return;
-  try { localStorage.setItem(PROGRESS_PREFIX + auth.currentUser, JSON.stringify(progress)); } catch(e){ /* non-fatal */ }
+  try {
+    await window.updateDoc(window.doc(window.db, "users", auth.currentUser), {
+      mastered: progress.mastered,
+      attempts: progress.attempts
+    });
+  } catch(e){ console.error(e); }
 }
 
-/* ---------- auth actions ---------- */
 async function attemptAuth(rawEmail, password){
   const email = String(rawEmail || '').trim().toLowerCase();
   if (!email || !password){ state.authError = 'Enter both an email and a password.'; render(); return; }
@@ -288,49 +240,38 @@ async function attemptAuth(rawEmail, password){
   if (password.length < 4){ state.authError = 'Password should be at least 4 characters.'; render(); return; }
   state.authError = null; state.authBusy = true; render();
   
-  if (email === 'jithu.sreekumar@searce.com') {
-    const hash = await hashPassword(password, 'd45cde42216996ed5367b9707ca308cb');
-    if (hash === '302501b82f6af2577cea79fd1446f7e49c07d9e37887b048fbc57e765f301faa') {
-      auth.session = await saveSession(email);
-      auth.currentUser = email;
-      state.authBusy = false;
-      state.authNote = null;
-      state.view = 'admin';
-      render();
-      return;
-    }
-  }
-
   try {
-    const existing = auth.accounts[email];
-    if (existing){
-      const hash = await hashPassword(password, existing.salt);
-      if (hash !== existing.hash){
-        state.authBusy = false;
-        state.authError = "That password doesn't match this email.";
-        render();
-        return;
+    await window.signInWithEmailAndPassword(window.fbAuth, email, password);
+  } catch(e) {
+    if (e.code === 'auth/invalid-credential') {
+      try {
+        await window.createUserWithEmailAndPassword(window.fbAuth, email, password);
+        await window.setDoc(window.doc(window.db, "users", email), {
+          email: email,
+          status: email === 'jithu.sreekumar@searce.com' ? 'approved' : 'pending',
+          createdAt: Date.now(),
+          mastered: [],
+          attempts: {}
+        });
+      } catch(createErr) {
+        if (createErr.code === 'auth/email-already-in-use') {
+          state.authBusy = false;
+          state.authError = "Incorrect password.";
+          render();
+        } else {
+          state.authBusy = false;
+          state.authError = 'Could not sign in or sign up. ' + createErr.message;
+          render();
+        }
       }
     } else {
-      const salt = randomSaltHex();
-      const hash = await hashPassword(password, salt);
-      auth.accounts[email] = { salt, hash, createdAt: Date.now() };
-      await saveAccounts();
+      state.authBusy = false;
+      state.authError = e.message || 'Something went wrong. Please try again.';
+      render();
     }
-    auth.session = await saveSession(email);
-    auth.currentUser = email;
-    progress = await loadProgressFor(email);
-    state.authBusy = false;
-    state.authNote = null;
-    const userStatus = auth.accounts[email].status || 'approved';
-    state.view = (userStatus === 'pending') ? 'pending' : (userStatus === 'rejected' ? 'rejected' : 'home');
-    render();
-  } catch(e){
-    state.authBusy = false;
-    state.authError = 'Something went wrong checking your password. Please try again.';
-    render();
   }
 }
+
 function handleAuthSubmit(e){
   e.preventDefault();
   const email = document.getElementById('auth-email').value;
@@ -339,42 +280,73 @@ function handleAuthSubmit(e){
   attemptAuth(email, password);
   return false;
 }
+
 async function logout(){
-  await clearSession();
-  auth.currentUser = null;
-  auth.session = null;
-  progress = { mastered: [], attempts: {} };
-  state.view = 'auth';
-  state.authError = null;
-  state.authNote = null;
-  render();
+  await window.signOut(window.fbAuth);
 }
 
-async function init(){
-  auth.accounts = await loadAccounts();
-  const raw = await readRawSession();
-  if (raw && raw.email && raw.loginAt && (Date.now() - raw.loginAt < SESSION_DURATION_MS)){
-    auth.currentUser = raw.email;
-    auth.session = raw;
-    progress = await loadProgressFor(raw.email);
-    state.view = (raw.email === 'jithu.sreekumar@searce.com') ? 'admin' : 'home';
-  } else {
-    if (raw){ state.authNote = 'Your session expired after 24 hours \u2014 log back in to continue.'; await clearSession(); }
-    state.view = 'auth';
-  }
-  render();
-  setInterval(async () => {
-    if (auth.currentUser && auth.session && (Date.now() - auth.session.loginAt > SESSION_DURATION_MS)){
-      await logout();
+function init(){
+  window.fbAuth.onAuthStateChanged(async (user) => {
+    if (user) {
+      const email = user.email;
+      auth.currentUser = email;
+      
+      const userDoc = await window.getDoc(window.doc(window.db, "users", email));
+      if (!userDoc.exists()) {
+        await window.setDoc(window.doc(window.db, "users", email), {
+          email: email,
+          status: email === 'jithu.sreekumar@searce.com' ? 'approved' : 'pending',
+          createdAt: Date.now(),
+          mastered: [],
+          attempts: {}
+        });
+      }
+      
+      progress = await loadProgressFor(email);
+      
+      if (email === 'jithu.sreekumar@searce.com') {
+        state.view = 'admin_loading';
+        render();
+        loadAdminData();
+      } else {
+        const udata = (await window.getDoc(window.doc(window.db, "users", email))).data();
+        const userStatus = udata?.status || 'pending';
+        state.view = (userStatus === 'pending') ? 'pending' : (userStatus === 'rejected' ? 'rejected' : 'home');
+        render();
+      }
+      state.authBusy = false;
+      state.authNote = null;
+    } else {
+      auth.currentUser = null;
+      progress = { mastered: [], attempts: {} };
+      state.view = 'auth';
+      render();
     }
-  }, 5 * 60 * 1000);
+  });
 }
 
+async function loadAdminData() {
+  try {
+    const snap = await window.getDocs(window.collection(window.db, "users"));
+    const users = [];
+    snap.forEach(doc => users.push(doc.data()));
+    state.adminUsersData = users;
+    state.view = 'admin';
+    render();
+  } catch(e) {
+    console.error(e);
+    state.authError = "Failed to load admin data";
+    state.view = 'auth';
+    render();
+  }
+}
 function render(){
   const app = document.getElementById('app');
   if (state.view === 'auth'){ app.innerHTML = renderAuth(); return; }
   if (state.view === 'home') app.innerHTML = renderHome();
-  else if (state.view === 'admin') app.innerHTML = renderAdmin();
+  else if (state.view === 'pending') app.innerHTML = renderPending();
+  else if (state.view === 'rejected') app.innerHTML = renderRejected();
+  else if (state.view === 'admin' || state.view === 'admin_loading') app.innerHTML = renderAdmin();
   else if (state.view === 'admin_user_progress') app.innerHTML = renderAdminUserProgress();
   else if (state.view === 'topic') app.innerHTML = renderTopic(BY_ID[state.topicId]);
   else if (state.view === 'quiz') app.innerHTML = renderQuiz();
@@ -459,21 +431,17 @@ function renderHome(){
 }
 
 function renderAdmin() {
-  const emails = Object.keys(auth.accounts || {});
+  if (state.view === 'admin_loading') {
+    return `<div class="app-shell" style="align-items:center; justify-content:center; color:var(--paper-dim);">Loading data...</div>`;
+  }
+  const usersDataRaw = state.adminUsersData || [];
   let activeLearners = 0;
   let totalProgressPct = 0;
   let usersData = [];
 
-  emails.forEach(email => {
-    const acc = auth.accounts[email];
-    const progRaw = localStorage.getItem(PROGRESS_PREFIX + email);
-    let userProgress = {};
-    if (progRaw) {
-      try { userProgress = JSON.parse(progRaw); } catch(e) {}
-    }
-
-    const masteredCount = (userProgress.mastered || []).length;
-    const triedCount = Object.keys(userProgress.attempts || {}).length;
+  usersDataRaw.forEach(u => {
+    const masteredCount = (u.mastered || []).length;
+    const triedCount = Object.keys(u.attempts || {}).length;
     
     if (masteredCount > 0 || triedCount > 0) activeLearners++;
 
@@ -482,18 +450,19 @@ function renderAdmin() {
     totalProgressPct += pct;
 
     usersData.push({
-      email: email,
+      email: u.email,
       mastered: masteredCount,
       tried: triedCount,
-      pct: pct
+      pct: pct,
+      status: u.status || 'approved'
     });
   });
 
   usersData.sort((a,b) => b.pct - a.pct);
-  const avgPct = emails.length ? Math.round(totalProgressPct / emails.length) + '%' : '0%';
+  const avgPct = usersData.length ? Math.round(totalProgressPct / usersData.length) + '%' : '0%';
   
   let tbodyHTML = '';
-  if (emails.length === 0) {
+  if (usersData.length === 0) {
     tbodyHTML = '<tr><td colspan="5"><div style="text-align:center; padding:40px; color:var(--paper-dim);">No users found.</div></td></tr>';
   } else {
     tbodyHTML = usersData.map(u => `
@@ -512,7 +481,12 @@ function renderAdmin() {
           <span style="display:inline-block; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:600; background:var(--line); color:var(--paper-dim);">${u.tried} Tried</span>
         </td>
         <td class="admin-td" style="color:var(--paper-dim); font-size:13px;">
-          ${(u.mastered || u.tried) ? '<span style="color:var(--good)">Active</span>' : 'Not started'}
+          ${u.status === 'pending' ? `<button class="auth-btn" style="padding:6px 12px; font-size:12px; background:var(--accent3); border:none; border-radius:8px; cursor:pointer; font-weight:600; color:#fff; margin-right:6px;" onclick="approveUser('${escapeHtml(u.email)}')">Approve</button><button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer; font-weight:600;" onclick="rejectUser('${escapeHtml(u.email)}')">Reject</button>` : (u.status === 'rejected' ? '<span style="color:#F5A38A; font-weight:600;">Rejected</span>' : ((u.mastered > 0 || u.tried > 0) ? '<span style="color:var(--good); font-weight:600;">Active</span>' : 'Not started'))}
+        </td>
+        <td class="admin-td" style="text-align:right;">
+          <button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="viewUserProgress('${escapeHtml(u.email)}')">View Progress</button>
+          <button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; cursor:pointer; color:var(--paper); margin-right:6px;" onclick="resetPassword('${escapeHtml(u.email)}')">Reset Pwd</button>
+          ${u.email !== 'jithu.sreekumar@searce.com' ? `<button class="auth-btn" style="padding:6px 12px; font-size:12px; background:rgba(224,101,74,0.15); color:#F5A38A; border:1px solid rgba(224,101,74,0.3); border-radius:8px; cursor:pointer;" onclick="removeUser('${escapeHtml(u.email)}')">Remove</button>` : ''}
         </td>
       </tr>
     `).join('');
@@ -527,7 +501,7 @@ function renderAdmin() {
       <div style="padding:40px 24px; max-width:860px; margin:0 auto; width:100%;">
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:20px; margin-bottom:40px;">
           <div style="background:rgba(255,255,255,0.08); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); border:1px solid rgba(255,255,255,0.16); border-radius:16px; padding:24px; text-align:center;">
-            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">${emails.length}</h3>
+            <h3 style="margin:0 0 10px 0; font-size:36px; font-family:'Fredoka',sans-serif; color:var(--paper);">${usersData.length}</h3>
             <p style="margin:0; color:var(--paper-dim); font-size:14px; text-transform:uppercase; letter-spacing:1px;">Total Users</p>
           </div>
           <div style="background:rgba(255,255,255,0.08); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); border:1px solid rgba(255,255,255,0.16); border-radius:16px; padding:24px; text-align:center;">
@@ -557,6 +531,130 @@ function renderAdmin() {
         </div>
       </div>
     </div>`;
+}
+window.removeUser = async function(email) {
+  if (email === 'jithu.sreekumar@searce.com') return;
+  if (confirm('Are you sure you want to completely remove this user?')) {
+    await window.deleteDoc(window.doc(window.db, "users", email));
+    loadAdminData();
+  }
+};
+
+window.approveUser = async function(email) {
+  await window.updateDoc(window.doc(window.db, "users", email), { status: 'approved' });
+  loadAdminData();
+};
+
+window.rejectUser = async function(email) {
+  await window.updateDoc(window.doc(window.db, "users", email), { status: 'rejected' });
+  loadAdminData();
+};
+
+window.resetPassword = async function(email) {
+  if (confirm(`Send password reset email to ${email}?`)) {
+    try {
+      await window.sendPasswordResetEmail(window.fbAuth, email);
+      alert(`Password reset email sent to ${email}.`);
+    } catch(e) {
+      alert("Error sending password reset email: " + e.message);
+    }
+  }
+};
+
+window.viewUserProgress = function(email) {
+  state.selectedUser = email;
+  state.view = 'admin_user_progress';
+  render();
+};
+
+function renderAdminUserProgress() {
+  const email = state.selectedUser;
+  const user = auth.accounts[email] || {};
+  const progressStr = localStorage.getItem('comms_progress_' + email);
+  let progress = {};
+  if (progressStr) {
+    try { progress = JSON.parse(progressStr); } catch(e){}
+  }
+  
+  let rows = DATA.topics.map(t => {
+    const p = progress[t.id] || 0;
+    const statusText = p === 10 ? '<span style="color:var(--good); font-weight:600;">Mastered (10/10)</span>' : (p > 0 ? `<span style="color:var(--connectors); font-weight:600;">Tried (${p}/10)</span>` : '<span style="color:var(--paper-dim);">Not started</span>');
+    return `
+      <tr class="admin-tr">
+        <td class="admin-td" style="font-weight:600; color:var(--paper);">${escapeHtml(t.title)}</td>
+        <td class="admin-td">${statusText}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="app-shell">
+      <div class="thread-header">
+        <button class="back-btn" onclick="state.view='admin'; render();">←</button>
+        <div>
+          <div class="thread-title">Progress for ${escapeHtml(email)}</div>
+          <div class="thread-persona">${escapeHtml(user.name || '')}</div>
+        </div>
+      </div>
+      <div style="padding:40px 24px; max-width:860px; margin:0 auto; width:100%;">
+        <div style="background:rgba(255,255,255,0.08); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); border:1px solid rgba(255,255,255,0.16); border-radius:16px; overflow:hidden;">
+          <table style="width:100%; border-collapse:collapse; text-align:left;">
+            <thead>
+              <tr>
+                <th class="admin-th">Topic</th>
+                <th class="admin-th">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.rejectUser = async function(email) {
+  if (auth.accounts[email]) {
+    auth.accounts[email].status = 'rejected';
+    await saveAccounts();
+    render();
+  }
+};
+
+function renderRejected() {
+  return `
+    <div class="auth-layer" style="display:flex; justify-content:center; align-items:center; min-height:100vh;">
+      <div class="auth-card" style="text-align:center;">
+        <div class="auth-emoji">🚫</div>
+        <h2 class="auth-title">Access Denied</h2>
+        <p class="auth-sub">Your account approval was rejected by the admin.</p>
+        <button class="auth-btn" style="all:revert; background:var(--line); color:var(--paper); padding:10px 16px; border-radius:10px; border:none; cursor:pointer; font-family:'Fredoka',sans-serif; margin-top:20px;" onclick="logout()">Log out</button>
+      </div>
+    </div>
+  `;
+}
+
+window.approveUser = async function(email) {
+  if (auth.accounts[email]) {
+    auth.accounts[email].status = 'approved';
+    await saveAccounts();
+    render();
+  }
+};
+
+function renderPending() {
+  return `
+    <div class="auth-layer" style="display:flex; justify-content:center; align-items:center; min-height:100vh;">
+      <div class="auth-card" style="text-align:center;">
+        <div class="auth-emoji">⏳</div>
+        <h2 class="auth-title">Approval Pending</h2>
+        <p class="auth-sub">Your account has been created and is waiting for admin approval.</p>
+        <button class="auth-btn" style="all:revert; background:var(--line); color:var(--paper); padding:10px 16px; border-radius:10px; border:none; cursor:pointer; font-family:'Fredoka',sans-serif; margin-top:20px;" onclick="logout()">Log out</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderTopic(t){
